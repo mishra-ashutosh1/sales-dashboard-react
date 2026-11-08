@@ -1,44 +1,46 @@
-# Olist React Dashboard POC
+# Olist React Dashboard POC — interactive upgrade
 
-Rebuilt from eight user-supplied Olist CSV files. This version uses precomputed aggregates, not live CSV fetching. Only aggregate figures are included in the new summary.
+## Run and verify
 
-## Run
-
-Extract into a clean directory (do not nest one project copy inside another). Node.js 20 LTS or newer recommended.
+Use Node.js 20+. Extract into a fresh folder containing package.json, not inside an existing project copy.
 
 ```sh
 npm install
+npm test
 npm run build
 npm run dev
 ```
 
-Open the URL printed by Vite. For production preview use `npm run preview` after building. The project does not need an API key or Python at runtime.
+## Two explicit data modes
 
-## Dashboard
+The bundled historical summary renders immediately. It cannot support global date/state filters, so those controls are disabled in bundled mode. The year control affects only the monthly chart.
 
-Four KPIs: delivered-order item sales in BRL, delivered items, delivered orders, average latest order-review score. Six bar-chart panels: monthly item sales, customer states, categories, all-order status, review scores and payments. Light/dark theme, category search, top-N and monthly-year controls. Controls affect only explicitly labelled charts; KPI cards remain full-dataset totals.
+For detailed mode, expand Load CSVs and select these five files together: olist_customers_dataset.csv, olist_orders_dataset.csv, olist_order_items_dataset.csv, olist_order_reviews_dataset.csv, olist_products_dataset.csv. Optionally include olist_order_payments_dataset.csv and product_category_name_translation.csv. Existing seller data is not needed for these measures. The browser reads the files locally; no upload endpoint exists. Large files may briefly block the UI. Reloading the page clears this in-memory model. Raw files are not added to GitHub by this upgrade.
 
-## Data definitions
+In detailed mode, inclusive purchase-date boundaries and customer state filter every KPI and chart consistently. Category search and top-N remain local controls. Missing payments are labelled unavailable, not zero. Review scores remain order-level, not product-level. Export downloads the full selected cohort summary; it ignores local category search, top-N and bundled monthly-year controls. It contains no customer IDs, order IDs or review text.
 
-- Item sales = sum of item price for delivered orders; excludes freight.
-- Items = order-item rows for delivered orders, not distinct orders.
-- Ratings = latest review per delivered order, sorted by creation date, answer timestamp and review ID.
-- Order status includes all 99,441 orders.
-- Payments are delivered-order payment records and may include freight or adjustments. They do not reconcile directly to item sales.
-- Reviews and payments were aggregated separately from item sales to avoid join multiplication.
-- Category translations are used where available; original names or unknown are retained otherwise.
-- Inventory is not present. No inventory or product-level rating figures are invented. Score distribution is not NLP sentiment.
+## Measures and caveats
 
-Computed checks: 96,478 delivered orders; 110,197 delivered items; BRL 13,221,498.11 item sales; 95,832 delivered orders with a latest review.
+Sales: delivered-order item prices, freight excluded. AOV: these sales divided by delivered orders. Status: all orders in the selected purchase cohort, with a separate chart for non-delivered statuses. Review: latest record sorted by creation date, answer timestamp and review ID. Review coverage: reviewed delivered orders divided by delivered orders. Payments are aggregated independently; they may include freight and are not directly comparable to item sales.
 
-## Files
+Delivery median: elapsed purchase-to-customer-delivery days for valid non-negative durations on delivered orders. On-time share: valid delivered orders received by the estimated calendar date, divided by eligible delivered orders; missing/invalid dates are excluded. Timestamp durations assume the supplied timestamps share one consistent clock. No inventory or NLP sentiment is invented. This historical snapshot must not be presented as a live operational backlog.
 
-`src/App.jsx` is the new entry component; `src/olist.css` is its styling; `src/data/olistSummary.json` contains computed aggregates. Legacy components and the old JSON are retained but are not used by the new App. Original CSVs uploaded to `dummy_data` are not automatically ingested by this version. To refresh, regenerate the summary from the source data.
+The monthly chart shows zero for interior missing months; edge months may be partial. No previous-period or year-on-year comparisons are implemented. Detailed data is not persisted, automatically fetched or cross-filtered by clicking charts. Loading and analytics currently run on the main browser thread; a Web Worker is a future performance improvement.
+
+## Reproducible preparation
+
+Place the five required files and optional payments/translations in a local folder, then run:
+
+```sh
+npm run prepare:data -- ./dummy_data
+```
+
+This validates CSV structure and join keys and writes generated/olist-summary.json. It does NOT overwrite the bundled summary. The same analytics module powers browser loading, preparation and tests. The GitHub repository currently needs additional CSVs for local preparation beyond the customer file; they were supplied separately in the conversation. Avoid committing raw files without reviewing the source license.
+
+## Quality checks
+
+Tests cover CSV quoting, duplicate-key rejection, missing files, join inflation, date/state filtering, latest reviews, delivery eligibility, empty results and CSV export escaping. GitHub Actions runs npm test and npm run build on pushes and pull requests. A configured workflow is not evidence that a run passed; check its result in Actions. Browser UI behaviour requires manual checks or future UI automation.
 
 ## Attribution
 
-Source: Brazilian E-Commerce Public Dataset by Olist, https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce . Original dataset creators retain their rights. Review and comply with the dataset's current license before redistribution or commercial use. No customer-level records or review text are added by this rebuild.
-
-## Validation limits
-
-The source data was processed with pandas and join cardinalities checked. The npm build and browser interaction have not been executed in the assistant environment; run the commands above locally. This is a static analytics POC, not a production data pipeline.
+Historical data: Brazilian E-Commerce Public Dataset by Olist, https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce . Review its license and attribution requirements before redistribution or commercial use. The new code does not upload customer data. Legacy components and JSON are retained but the new entry component uses analytics.mjs, olist.css and upgrade.css.

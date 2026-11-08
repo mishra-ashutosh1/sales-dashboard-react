@@ -1,39 +1,55 @@
-import { useState } from 'react';
-import data from './data/olistSummary.json';
+import { useMemo, useState } from 'react';
+import baseline from './data/olistSummary.json';
+import { parseCSV, buildModel, filterRecords, summarize, summaryCSV } from './analytics.mjs';
 import './olist.css';
-
-const number = (v) => new Intl.NumberFormat('en-US').format(v);
-const money = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
-const label = (s) => s.replaceAll('_', ' ');
-
-function Bars({ rows, currency = false }) {
-  const max = Math.max(1, ...rows.map((r) => r[1]));
-  return rows.length ? <div className="bars">{rows.map(([name, value]) => <div className="bar-row" key={name}><div className="bar-caption"><span>{label(name)}</span><span>{currency ? money(value) : number(value)}</span></div><div className="track"><div style={{ width: `${value / max * 100}%` }} /></div></div>)}</div> : <p>No matching data.</p>;
+import './upgrade.css';
+const count=(v)=>v==null?'N/A':new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(v);
+const money=(v)=>v==null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'BRL',maximumFractionDigits:0}).format(v);
+const percent=(v)=>v==null?'N/A':`${(v*100).toFixed(1)}%`;
+const label=(v)=>String(v).replaceAll('_',' ');
+function Card({title,note,children}){return <section className="olist-card"><h2>{title}</h2>{note&&<p className="muted">{note}</p>}{children}</section>;}
+function Bars({rows,currency=false,shares=false}){
+  const max=Math.max(1,...rows.map(r=>r[1])),total=rows.reduce((s,r)=>s+r[1],0);
+  return rows.length?<div>{rows.map(([name,value])=><div className="bar-row" key={name}><div className="bar-caption"><span>{label(name)}</span><span>{currency?money(value):count(value)}{shares&&total?` (${percent(value/total)})`:''}</span></div><div className="track"><div style={{width:`${value/max*100}%`}} /></div></div>)}</div>:<p>No matching data.</p>;
 }
-function Card({ title, note, children }) {
-  return <section className="olist-card"><h2>{title}</h2>{note && <p className="muted">{note}</p>}{children}</section>;
+function Trend({rows}){
+  if(!rows.length)return <p>No matching data.</p>;
+  const first=rows[0][0],last=rows[rows.length-1][0],map=new Map(rows),filled=[];
+  const cursor=new Date(`${first}-01T00:00:00Z`);
+  while(cursor.toISOString().slice(0,7)<=last){const month=cursor.toISOString().slice(0,7);filled.push([month,map.get(month)||0]);cursor.setUTCMonth(cursor.getUTCMonth()+1);}
+  const max=Math.max(1,...filled.map(r=>r[1]));
+  const points=filled.map((r,i)=>[50+i*900/Math.max(1,filled.length-1),225-r[1]/max*190]);
+  return <><svg className="trend" viewBox="0 0 1000 280" role="img" aria-label="Monthly delivered-order item sales. Exact values are available in the table below."><line x1="50" y1="225" x2="950" y2="225" stroke="currentColor"/><text x="50" y="20" fill="currentColor">{money(max)}</text><text x="50" y="255" fill="currentColor">{first}</text><text x="950" y="255" textAnchor="end" fill="currentColor">{last}</text><polyline fill="none" stroke="var(--oaccent)" strokeWidth="4" points={points.map(p=>p.join(',')).join(' ')}/>{points.map(([x,y],i)=><circle key={filled[i][0]} cx={x} cy={y} r="5" fill="var(--oaccent)"><title>{filled[i][0]}: {money(filled[i][1])}</title></circle>)}</svg><details><summary>Monthly values</summary><table><thead><tr><th>Purchase month</th><th>Item sales</th></tr></thead><tbody>{filled.map(([m,v])=><tr key={m}><td>{m}</td><td>{money(v)}</td></tr>)}</tbody></table></details></>;
 }
-export default function App() {
-  const [dark, setDark] = useState(false);
-  const [top, setTop] = useState(10);
-  const [query, setQuery] = useState('');
-  const [year, setYear] = useState('All');
-  const k = data.kpis;
-  const categories = data.categories.filter(([name]) => label(name).toLowerCase().includes(query.trim().toLowerCase())).slice(0, top);
-  const monthly = data.monthly.filter(([month]) => year === 'All' || month.startsWith(year));
-  return <div className={`olist-app ${dark ? 'night' : ''}`}>
-    <header className="olist-header"><div><p className="eyebrow">REACT POC / OLIST PUBLIC DATA</p><h1>Brazilian e-commerce overview</h1><p className="muted">Historical order, sales and customer-review analytics</p></div><button onClick={() => setDark(!dark)}>Switch to {dark ? 'light' : 'dark'} theme</button></header>
-    <div className="olist-notice">Sales = delivered-order item prices, excluding freight. Ratings use the latest review per delivered order. All KPI cards show the complete dataset; controls below affect only their named charts.</div>
-    <div className="olist-kpis">{[['Item sales (BRL)', money(k.sales)], ['Items delivered', number(k.items)], ['Delivered orders', number(k.deliveredOrders)], ['Average order rating', `${k.rating.toFixed(2)} / 5`]].map(([name,value]) => <section className="olist-card" key={name}><p className="muted">{name}</p><strong>{value}</strong></section>)}</div>
-    <div className="olist-controls"><label>Monthly chart year<select value={year} onChange={(e) => setYear(e.target.value)}><option>All</option><option>2016</option><option>2017</option><option>2018</option></select></label><label>Category search<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. health or furniture" /></label><label>Category and state rows: {top}<input type="range" min="3" max="20" value={top} onChange={(e) => setTop(Number(e.target.value))} /></label><button onClick={() => {setYear('All');setQuery('');setTop(10);}}>Reset controls</button></div>
-    <div className="olist-grid">
-      <Card title="Monthly item sales" note="Purchase month; delivered orders only. Missing months have no recorded delivered-item sales."><Bars rows={monthly} currency /></Card>
-      <Card title="Sales by customer state" note="Brazilian state codes; delivered-order item sales."><Bars rows={data.states.slice(0, top)} currency /></Card>
-      <Card title="Top product categories" note="Categories, not invented product names. Search applies only here."><Bars rows={categories} currency /></Card>
-      <Card title="Order status" note={`${number(k.allOrders)} orders across all statuses; not an inventory measure.`}><Bars rows={data.status} /></Card>
-      <Card title="Customer review scores" note={`${number(k.reviewedOrders)} delivered orders with a review; latest review per order. Not text sentiment.`}><Bars rows={data.ratings.map(([score,count]) => [`${score} stars`,count])} /></Card>
-      <Card title="Payments by method" note="Delivered orders only. Payments can include freight and adjustments, so they differ from item sales."><Bars rows={data.payments} currency /></Card>
-    </div>
-    <Card title="Dataset and methodology"><p>Computed from the eight Olist CSVs supplied for this project. This is historical public data, not generated dummy data. No customer identifiers, addresses or review text are included in this summary.</p><p>Sales items were joined to orders, customers and products with many-to-one validation. Reviews and payments were aggregated separately to prevent duplicated sales. Review ties are resolved by review creation date, answer timestamp, then review ID. Untranslated categories retain their source label; missing categories are marked unknown.</p><p>Inventory and product-level ratings are intentionally omitted because these files do not support them directly. This POC uses a static summary, not a live backend or globally cross-filtered data model.</p><div className="source-grid">{Object.entries(data.quality).map(([name,count]) => <p key={name}>{name}: {number(count)}</p>)}</div><p className="muted">Source: Olist Brazilian E-Commerce Public Dataset (Kaggle). See README for attribution and limitations.</p></Card>
+export default function App(){
+  const [dark,setDark]=useState(false),[model,setModel]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const [start,setStart]=useState(''),[end,setEnd]=useState(''),[state,setState]=useState('All'),[top,setTop]=useState(5),[query,setQuery]=useState(''),[year,setYear]=useState('All');
+  const invalid=!!(start&&end&&start>end);
+  const selected=useMemo(()=>model?filterRecords(model.records,{start,end,state}):[],[model,start,end,state]);
+  const report=useMemo(()=>model?summarize(invalid?[]:selected,model.paymentsAvailable):baseline,[model,selected,invalid]);
+  const k=report.kpis,states=useMemo(()=>model?[...new Set(model.records.map(r=>r.state))].sort():[],[model]);
+  const scope=model?`${start||'First purchase'} to ${end||'Last purchase'} | State: ${state}`:'All periods and states (bundled summary)';
+  const trend=report.monthly.filter(([m])=>model||year==='All'||m.startsWith(year));
+  const categories=report.categories.filter(([name])=>label(name).toLowerCase().includes(query.trim().toLowerCase())).slice(0,top);
+  const deliveredShare=k.allOrders?k.deliveredOrders/k.allOrders:null;
+  async function load(event){
+    const input=event.target;const uploads=[...input.files];setBusy(true);setError('');
+    try{await new Promise(resolve=>setTimeout(resolve,25));const tables={};for(const file of uploads)if(file.name.endsWith('.csv'))tables[file.name]=parseCSV(await file.text());const next=buildModel(tables);setModel(next);setStart('');setEnd('');setState('All');setYear('All');}
+    catch(e){setError(e.message||'Unable to load CSV files.');}finally{setBusy(false);input.value='';}
+  }
+  function download(){const url=URL.createObjectURL(new Blob([summaryCSV(report)],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='olist-filtered-summary.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  const aov=k.aov??(k.deliveredOrders?k.sales/k.deliveredOrders:null);
+  return <div className={`olist-app ${dark?'night':''}`}>
+    <header className="olist-header"><div><p className="eyebrow">REACT POC / OLIST PUBLIC DATA</p><h1>Brazilian e-commerce overview</h1><p className="muted">Historical analytics, not a live operations feed</p></div><button onClick={()=>setDark(!dark)}>Switch to {dark?'light':'dark'} theme</button></header>
+    <div className="olist-notice"><strong>{model?'Detailed data mode':'Bundled summary mode'}</strong><p>{scope}</p><p>Item sales exclude freight and include delivered orders only. Order statuses include all orders in the selected purchase cohort.</p></div>
+    <details className="olist-card"><summary>Load CSVs to enable global filters and delivery metrics</summary><p>Select customers, orders, order items, order reviews and products together. Payments and category translations are optional. Files stay in this browser; they are not uploaded to a server. Loading may briefly pause the interface on large files.</p><input type="file" accept=".csv" multiple onChange={load} disabled={busy}/><p role="status">{busy?'Reading and validating files...':model?`${count(model.records.length)} orders loaded.`:'The bundled summary remains usable without files.'}</p>{model&&<button onClick={()=>{setModel(null);setStart('');setEnd('');setState('All');}}>Return to bundled summary</button>}</details>
+    {error&&<p className="olist-notice" role="alert">Load failed: {error}. The previous view was retained.</p>}
+    <div className="olist-controls"><label>Purchase date from<input type="date" value={start} onChange={e=>setStart(e.target.value)} disabled={!model||busy}/></label><label>Purchase date to<input type="date" value={end} onChange={e=>setEnd(e.target.value)} disabled={!model||busy}/></label><label>Customer state<select value={state} onChange={e=>setState(e.target.value)} disabled={!model||busy}><option>All</option>{states.map(s=><option key={s}>{s}</option>)}</select></label><button onClick={()=>{setStart('');setEnd('');setState('All');setTop(5);setQuery('');setYear('All');}}>Reset controls</button><button onClick={download} disabled={invalid||busy}>Export current summary CSV</button></div>
+    {invalid&&<p role="alert">Start date must not be later than end date.</p>}
+    <div className="olist-kpis">{[['Item sales (BRL)',money(k.sales),'Delivered-order items only'],['Delivered orders',count(k.deliveredOrders),`${count(k.items)} delivered items`],['Average order value',money(aov),'Item sales / delivered orders; excludes freight'],['Average order rating',k.rating==null?'N/A':`${k.rating.toFixed(2)} / 5`,`${count(k.reviewedOrders)} reviewed delivered orders`]].map(([name,value,note])=><section className="olist-card" key={name}><p className="muted">{name}</p><strong>{value}</strong><p className="muted">{note}</p></section>)}</div>
+    {model&&<div className="olist-kpis"><Card title="Median delivery time"><strong>{k.medianDays==null?'N/A':`${k.medianDays.toFixed(1)} days`}</strong><p className="muted">Purchase to delivery; {count(k.durationEligible)} valid delivered orders.</p></Card><Card title="On-time delivery"><strong>{percent(k.onTimeRate)}</strong><p className="muted">Received by estimated calendar date; {count(k.deliveryEligible)} eligible orders.</p></Card><Card title="Review coverage"><strong>{percent(k.reviewCoverage)}</strong><p className="muted">Delivered orders with a latest review.</p></Card><Card title="Delivered share"><strong>{percent(deliveredShare)}</strong><p className="muted">Of {count(k.allOrders)} orders in this purchase cohort.</p></Card></div>}
+    <div className="olist-controls">{!model&&<label>Monthly chart year only<select value={year} onChange={e=>setYear(e.target.value)}><option>All</option><option>2016</option><option>2017</option><option>2018</option></select></label>}<label>Category search only<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="health or furniture"/></label><label>Category and state rows: {top}<input type="range" min="3" max="27" value={top} onChange={e=>setTop(Number(e.target.value))}/></label></div>
+    <div className="olist-grid"><Card title="Monthly item sales" note="Purchase month; missing interior months are shown as zero. Edge months may be partial."><Trend rows={trend}/></Card><Card title="Sales by customer state" note="Top states; BRL item sales."><Bars rows={report.states.slice(0,top)} currency/></Card><Card title="Top product categories" note="Search and top-N affect this chart, not KPIs."><Bars rows={categories} currency/></Card><Card title="Other order statuses" note={`${percent(deliveredShare)} delivered; chart below excludes delivered orders. Percentages refer to non-delivered orders only.`}><Bars rows={report.status.filter(([s])=>s!=='delivered')} shares/></Card><Card title="Customer review scores" note="Latest review per delivered order; percentages of reviewed orders. Not text sentiment."><Bars rows={report.ratings.map(([s,v])=>[`${s} stars`,v])} shares/></Card><Card title="Payments by method" note="Delivered orders; payment amounts can include freight and differ from item sales.">{report.paymentsAvailable===false?<p>Load the optional payments CSV to populate this chart.</p>:<Bars rows={report.payments} currency/>}</Card></div>
+    <details className="olist-card"><summary>Definitions, data quality and limitations</summary><p>Historical public Olist data. Detailed mode filters all charts and KPIs by purchase date and customer state. Category search and top-N remain local chart controls. Bundled mode has no global filters.</p><p>Reviews are selected by creation date, answer timestamp and review ID, independently of items and payments, to prevent inflated sales. Delivery time excludes missing or negative durations. On-time delivery compares calendar dates, not midnight timestamps. Invalid or missing delivery records are excluded from delivery denominators.</p><p>Inventory is unavailable; review scores are order-level, not product-level. Source CSVs are read only in the browser, not persisted. Reloading resets detailed mode. Export contains the complete selected summary, not only top-N or category-search results. Period-over-period comparisons are not implemented.</p><p>Source: Brazilian E-Commerce Public Dataset by Olist. See README for local preparation, testing, attribution and remaining limitations.</p></details>
   </div>;
 }
